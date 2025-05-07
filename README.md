@@ -2,14 +2,14 @@
 
 ## Aperçu du projet
 
-**Pokémon Simulator** est une application C++ qui simule un jeu de combat Pokémon. Les joueurs peuvent créer une équipe de Pokémon, affronter des leaders de gymnase pour gagner des badges, combattre des Maîtres Pokémon, gérer leur équipe, et interagir avec leurs Pokémon ou des entraîneurs vaincus. L'application utilise des concepts de programmation orientée objet (POO) pour modéliser les entités et leurs interactions, avec une gestion des données via des fichiers CSV.
+**Pokémon Simulator** est une application C++ qui simule un jeu de combat Pokémon. Les joueurs peuvent créer et gérer une équipe de Pokémon, affronter des leaders de gymnase pour gagner des badges, combattre des Maîtres Pokémon, interagir avec leurs Pokémon ou des entraîneurs vaincus, et suivre leurs statistiques. L'application utilise des concepts de programmation orientée objet (POO) pour modéliser les entités et leurs interactions, avec une gestion des données via des fichiers CSV. Les combats sont rendus réalistes grâce à des multiplicateurs de type (basés sur les forces et faiblesses des types Pokémon) et des tours multiples où tous les Pokémon de l'équipe participent.
 
 ### Fonctionnalités principales
-- Création et gestion d'une équipe de 6 Pokémon avec au moins 3 types différents.
-- Combats contre des leaders de gymnase et des Maîtres Pokémon basés sur la comparaison des dégâts.
+- Création d'une équipe de 6 Pokémon avec au moins 3 types différents.
+- Combats stratégiques contre des leaders et des Maîtres, avec multiplicateurs de type et tours multiples.
 - Interactions avec les Pokémon et les entraîneurs vaincus via une interface commune.
-- Chargement des données (Pokémon, joueurs, leaders, Maîtres) depuis des fichiers CSV.
-- Menu interactif pour gérer l'équipe, afficher les statistiques, et lancer des combats.
+- Chargement et sauvegarde des données (Pokémon, joueurs, leaders, Maîtres) depuis des fichiers CSV.
+- Menu interactif pour gérer l'équipe, afficher les statistiques, lancer des combats, et restaurer les HP.
 
 ## Logique de l'application
 
@@ -30,8 +30,8 @@ L'application est centrée autour de la classe `Simulateur`, qui orchestre la lo
   ```
 
 ### 2. Classes principales
-- **`Pokemon`** : Représente un Pokémon avec des attributs comme le nom, les types, les HP, l'attaque et les dégâts.
-- **`Entraineur`** : Représente un joueur, un leader ou un Maître, avec un nom, une équipe de Pokémon, et un état (vaincu ou non).
+- **`Pokemon`** : Représente un Pokémon avec des attributs comme le nom, les types, les HP maximum (`hp`), les HP actuels (`hp_actuel`), l'attaque, et les dégâts. Inclut une méthode pour calculer les multiplicateurs de type.
+- **`Entraineur`** : Représente un joueur, un leader ou un Maître, avec un nom, une équipe de Pokémon, et un état (vaincu ou non). Vérifie si l'équipe est K.O.
 - **`Simulateur`** : Gère la logique du jeu, incluant le chargement des données, l'affichage du menu, la gestion de l'équipe, les combats, et les interactions.
 - **`Interagir`** : Interface pour les interactions (utilisée par `Pokemon` et `Entraineur`).
 
@@ -118,18 +118,37 @@ L'application est centrée autour de la classe `Simulateur`, qui orchestre la lo
 5. **Combats** :
    - `affronterGymnase` permet de combattre un leader pour gagner un badge.
    - `affronterMaitre` est débloqué après avoir obtenu tous les badges (nombre de leaders dans `leaders.csv`).
-   - `simulerCombat` compare les dégâts du premier Pokémon de chaque équipe.
+   - `simulerCombat` gère des combats avec tours multiples et multiplicateurs de type. Chaque Pokémon affronte son adversaire, infligeant des dégâts ajustés par les types jusqu'à ce qu'une équipe soit K.O.
    - Extrait de `simulerCombat` :
      ```cpp
-     int degats_joueur = joueur->equipe[0]->degats;
-     int degats_adversaire = adversaire->equipe[0]->degats;
-     if (degats_joueur > degats_adversaire) {
-         std::cout << joueur->nom << " gagne !\n";
-         combats_gagnes++;
-         adversaire->vaincu = true;
-         entraineurs_vaincus.push_back(adversaire);
-         if (std::find(leaders.begin(), leaders.end(), adversaire) != leaders.end()) {
-             badges++;
+     while (index_joueur < joueur->equipe.size() && index_adversaire < adversaire->equipe.size()) {
+         auto& p_joueur = joueur->equipe[index_joueur];
+         auto& p_adversaire = adversaire->equipe[index_adversaire];
+         if (p_joueur->estKo()) { index_joueur++; continue; }
+         if (p_adversaire->estKo()) { index_adversaire++; continue; }
+         std::cout << p_joueur->nom << " (HP: " << p_joueur->hp_actuel << ") vs " << p_adversaire->nom << " (HP: " << p_adversaire->hp_actuel << ")\n";
+         double multiplicateur_joueur = p_adversaire->calculerMultiplicateur(p_joueur->type1);
+         int degats_infliges_joueur = static_cast<int>(p_joueur->degats * multiplicateur_joueur);
+         p_adversaire->hp_actuel -= degats_infliges_joueur;
+         if (!p_adversaire->estKo()) {
+             double multiplicateur_adversaire = p_joueur->calculerMultiplicateur(p_adversaire->type1);
+             int degats_infliges_adversaire = static_cast<int>(p_adversaire->degats * multiplicateur_adversaire);
+             p_joueur->hp_actuel -= degats_infliges_adversaire;
+         }
+         if (joueur->equipeKo()) {
+             std::cout << adversaire->nom << " gagne !\n";
+             combats_perdus++;
+             return;
+         }
+         if (adversaire->equipeKo()) {
+             std::cout << joueur->nom << " gagne !\n";
+             combats_gagnes++;
+             adversaire->vaincu = true;
+             entraineurs_vaincus.push_back(adversaire);
+             if (std::find(leaders.begin(), leaders.end(), adversaire) != leaders.end()) {
+                 badges++;
+             }
+             return;
          }
      }
      ```
@@ -145,10 +164,9 @@ L'application est centrée autour de la classe `Simulateur`, qui orchestre la lo
 L'application utilise plusieurs concepts POO pour structurer le code de manière modulaire et maintenable. Voici les concepts clés et leur implémentation :
 
 ### 1. **Encapsulation**
-- **Définition** : Regroupement des données et des méthodes qui agissent sur ces données dans une classe, avec contrôle d'accès via des modificateurs (`public`, `private`).
+- **Définition** : Regroupement des données et des méthodes dans une classe, avec contrôle d'accès via des modificateurs (`public`, `private`).
 - **Implémentation** :
-  - Les attributs de `Pokemon` (nom, type1, type2, hp, attaque, degats) et de `Entraineur` (nom, equipe, vaincu) sont déclarés dans la section `public` pour un accès direct, mais pourraient être rendus `private` avec des getters/setters pour un contrôle plus strict.
-  - Les attributs de `Simulateur` (comme `pokemons_disponibles`, `joueur`, `leaders`) sont `private`, accessibles uniquement via des méthodes publiques.
+  - Les attributs de `Pokemon` (nom, type1, type2, hp, hp_actuel, attaque, degats) et de `Entraineur` (nom, equipe, vaincu) sont accessibles directement, mais les attributs de `Simulateur` (comme `pokemons_disponibles`, `joueur`, `badges`) sont `private`, accessibles via des méthodes publiques.
   - Exemple :
     ```cpp
     class Simulateur {
@@ -163,7 +181,7 @@ L'application utilise plusieurs concepts POO pour structurer le code de manière
     ```
 
 ### 2. **Héritage**
-- **Définition** : Création de classes dérivées qui héritent des propriétés et comportements d'une classe de base.
+- **Définition** : Création de classes dérivées qui héritent des propriétés d'une classe de base.
 - **Implémentation** :
   - `Pokemon` et `Entraineur` héritent de l'interface `Interagir` pour implémenter la méthode `interagir()`.
   - Exemple :
@@ -183,10 +201,10 @@ L'application utilise plusieurs concepts POO pour structurer le code de manière
     ```
 
 ### 3. **Polymorphisme**
-- **Définition** : Capacité d'appeler des méthodes différentes via une interface commune, en fonction du type réel de l'objet.
+- **Définition** : Capacité d'appeler des méthodes différentes via une interface commune, selon le type réel de l'objet.
 - **Implémentation** :
   - L'interface `Interagir` définit une méthode virtuelle pure `interagir()`, implémentée différemment par `Pokemon` et `Entraineur`.
-  - `interagirEntites` utilise le polymorphisme pour appeler `interagir()` sur des objets `Pokemon` ou `Entraineur` sans connaître leur type exact.
+  - `interagirEntites` utilise le polymorphisme pour appeler `interagir()` sur des objets `Pokemon` ou `Entraineur`.
   - Exemple :
     ```cpp
     std::cout << joueur->equipe[index - 1]->interagir() << "\n"; // Appelle Pokemon::interagir()
@@ -196,14 +214,14 @@ L'application utilise plusieurs concepts POO pour structurer le code de manière
 ### 4. **Abstraction**
 - **Définition** : Masquage des détails d'implémentation et exposition des fonctionnalités essentielles via des interfaces ou des méthodes abstraites.
 - **Implémentation** :
-  - L'interface `Interagir` est une abstraction qui définit un contrat pour les interactions sans spécifier comment elles sont implémentées.
-  - `Simulateur` abstrait la logique complexe (chargement des CSV, gestion des combats) derrière des méthodes simples comme `afficherMenu` et `chargerDonnees`.
+  - L'interface `Interagir` définit un contrat pour les interactions sans spécifier leur implémentation.
+  - `Simulateur` abstrait la logique complexe (chargement des CSV, gestion des combats avec multiplicateurs de type) derrière des méthodes comme `afficherMenu`.
 
 ### 5. **Composition**
 - **Définition** : Une classe contient des instances d'autres classes comme membres pour représenter une relation "a-un".
 - **Implémentation** :
-  - `Entraineur` contient un `std::vector<std::shared_ptr<Pokemon>>` pour représenter l'équipe.
-  - `Simulateur` contient des collections (`pokemons_disponibles`, `leaders`, `maitres`, `entraineurs_vaincus`) pour gérer les entités du jeu.
+  - `Entraineur` contient un `std::vector<std::shared_ptr<Pokemon>>` pour l'équipe.
+  - `Simulateur` contient des collections (`pokemons_disponibles`, `leaders`, `maitres`, `entraineurs_vaincus`).
   - Exemple :
     ```cpp
     class Entraineur : public Interagir {
@@ -218,7 +236,7 @@ L'application utilise plusieurs concepts POO pour structurer le code de manière
 ### 6. **Gestion de la mémoire**
 - **Définition** : Utilisation de pointeurs intelligents pour gérer la durée de vie des objets.
 - **Implémentation** :
-  - `std::shared_ptr` est utilisé pour les objets `Pokemon` et `Entraineur` afin d'éviter les fuites mémoire et de gérer automatiquement la destruction.
+  - `std::shared_ptr` est utilisé pour les objets `Pokemon` et `Entraineur` pour éviter les fuites mémoire.
   - Exemple :
     ```cpp
     pokemons_disponibles.push_back(std::make_shared<Pokemon>(nom, type1, type2, hp, attaque, degats));
@@ -226,66 +244,25 @@ L'application utilise plusieurs concepts POO pour structurer le code de manière
 
 ## Comment les concepts POO sont utilisés
 
-- **Encapsulation** : Protège les données internes de `Simulateur` (comme `badges`, `combats_gagnes`) et expose des méthodes publiques pour interagir avec elles, réduisant les risques d'erreurs.
-- **Héritage et polymorphisme** : Permettent à `Pokemon` et `Entraineur` de partager un comportement commun (`interagir()`) tout en fournissant des implémentations spécifiques, facilitant l'extensibilité (par exemple, ajouter de nouveaux types d'entraîneurs).
-- **Abstraction** : Simplifie l'interaction avec le système via des interfaces claires, masquant la complexité du chargement des CSV ou des combats.
-- **Composition** : Modélise les relations naturelles du jeu (un entraîneur a une équipe, le simulateur gère les leaders et les Maîtres).
-- **Gestion de la mémoire** : Assure une utilisation efficace des ressources en évitant les fuites mémoire, particulièrement important avec les nombreuses instances de `Pokemon` et `Entraineur`.
-
-## Installation et exécution
-
-### Prérequis
-- Compilateur C++ (g++, clang++) avec support C++11 ou supérieur.
-- Bibliothèques standard : `<iostream>`, `<fstream>`, `<sstream>`, `<vector>`, `<string>`, `<memory>`, `<set>`, `<algorithm>`, `<random>`.
-
-### Compilation
-```bash
-g++ -std=c++11 pokemon_simulator.cpp -o pokemon_simulator
-```
-
-### Exécution
-```bash
-./pokemon_simulator
-```
-
-### Fichiers requis
-- `pokemon.csv` : Liste des Pokémon disponibles.
-- `joueur.csv` : Liste des joueurs et leurs équipes (créé automatiquement si absent).
-- `leaders.csv` : Liste des leaders de gymnase.
-- `maitres.csv` : Liste des Maîtres Pokémon.
+- **Encapsulation** : Protège les données internes de `Simulateur` (comme `badges`, `combats_gagnes`) et expose des méthodes publiques, réduisant les erreurs.
+- **Héritage et polymorphisme** : Permettent à `Pokemon` et `Entraineur` de partager un comportement commun (`interagir()`) avec des implémentations spécifiques, facilitant l'extensibilité.
+- **Abstraction** : Simplifie l'interaction avec le système via des interfaces claires, masquant la complexité des combats (multiplicateurs de type, tours multiples).
+- **Composition** : Modélise les relations du jeu (un entraîneur a une équipe, le simulateur gère les leaders et Maîtres).
+- **Gestion de la mémoire** : Assure une utilisation efficace des ressources avec `std::shared_ptr`, essentiel pour gérer de nombreuses instances de `Pokemon` et `Entraineur`.
 
 ## Utilisation
 
-1. **Lancer le programme** : Exécutez `./pokemon_simulator`.
+1. **Lancer le programme** : Exécutez le programme compilé.
 2. **Charger ou créer un joueur** :
    - Si `joueur.csv` existe, choisissez un joueur existant ou créez-en un nouveau.
    - Créez une équipe de 6 Pokémon avec au moins 3 types différents.
 3. **Menu principal** :
-   - **Option 1** : Créer/modifier l'équipe.
-   - **Option 2** : Afficher les Pokémon.
-   - **Option 3** : Récupérer les HP.
-   - **Option 4** : Changer l'ordre des Pokémon.
+   - **Option 1** : Créer/modifier l'équipe (choisir des Pokémon stratégiques pour les multiplicateurs de type).
+   - **Option 2** : Afficher les Pokémon (voir HP actuels/maximum).
+   - **Option 3** : Récupérer les HP (restaurer `hp_actuel`).
+   - **Option 4** : Changer l'ordre des Pokémon (important pour les combats).
    - **Option 5** : Afficher les statistiques (badges, combats gagnés/perdus).
    - **Option 6** : Affronter un leader pour gagner un badge.
    - **Option 7** : Affronter un Maître (nécessite tous les badges).
    - **Option 8** : Interagir avec les Pokémon ou entraîneurs vaincus.
    - **Option 9** : Quitter.
-
-## Structure du projet
-
-```
-pokemon_simulator/
-├── pokemon_simulator.cpp  # Code source principal
-├── pokemon.csv            # Données des Pokémon
-├── joueur.csv             # Données des joueurs (généré)
-├── leaders.csv           # Données des leaders
-├── maitres.csv           # Données des Maîtres
-├── README.md             # Documentation
-```
-
-## Limitations et améliorations possibles
-
-- **Combats simplistes** : Les combats comparent uniquement les dégâts du premier Pokémon. Ajouter des multiplicateurs de type ou des tours multiples rendrait les combats plus réalistes.
-- **Types limités** : Seuls certains types (Feu, Eau, Plante, etc.) sont supportés. Étendre `stringToType` pour tous les types de l'enum `Type`.
-- **Interface utilisateur** : Ajouter une interface graphique ou améliorer la robustesse des entrées utilisateur.
-- **Persistance des données** : Stocker les badges et les statistiques dans `joueur.csv` pour une sauvegarde complète.
